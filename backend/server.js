@@ -6,7 +6,9 @@ import multer from 'multer';
 import archiver from 'archiver';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
+import rateLimit from 'express-rate-limit';
 
 import {
   getOrCreateRoom,
@@ -42,6 +44,27 @@ const io = new Server(server, {
 
 app.use(cors({ origin: CLIENT_ORIGIN }));
 app.use(express.json({ limit: '10mb' }));
+
+// -------------------------------------------------------------
+// Rate Limiting (Abuse Prevention & Bot Protection)
+// -------------------------------------------------------------
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute window
+  max: 180, // Limit each IP to 180 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please wait a moment before trying again.' }
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 40, // Max 40 uploads per minute per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Upload rate limit reached. Please wait a moment before uploading more files.' }
+});
+
+app.use('/api/', apiLimiter);
 
 // Multer memory storage configured with 65MB max limit
 const upload = multer({
@@ -109,7 +132,7 @@ app.post('/api/room/:roomId/text', (req, res) => {
 
     const { text } = req.body;
     const result = updateRoomText(check.roomId, text || '');
-
+    
     // Broadcast update to all sockets in room except sender
     io.to(check.roomId).emit('room:text-updated', { text: result.text, totalBytes: result.currentBytes });
     res.json(result);
@@ -118,8 +141,8 @@ app.post('/api/room/:roomId/text', (req, res) => {
   }
 });
 
-// Upload Files or Images with detailed error interceptor
-app.post('/api/room/:roomId/upload', (req, res, next) => {
+// Upload Files or Images with detailed error interceptor and upload rate limiter
+app.post('/api/room/:roomId/upload', uploadLimiter, (req, res, next) => {
   upload.array('files')(req, res, (err) => {
     if (err) {
       if (err instanceof multer.MulterError) {
@@ -172,7 +195,7 @@ app.post('/api/room/:roomId/upload', (req, res, next) => {
     for (const file of files) {
       const isImage = file.mimetype.startsWith('image/');
       const savedInfo = await saveFile(roomId, file);
-
+      
       const fileRecord = {
         id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
         filename: savedInfo.filename,
@@ -356,7 +379,7 @@ io.on('connection', (socket) => {
         totalBytes: result.currentBytes
       });
     } catch (err) {
-      socket.emit('room:error', { message: err.message || 'Cannot update notes - capacity exceeded.' });
+      socket.emit('room:error', { message: err.message || 'Cannot update notes — capacity exceeded.' });
     }
   });
 
@@ -368,6 +391,26 @@ io.on('connection', (socket) => {
     }
   });
 });
+
+// -------------------------------------------------------------
+// Production Unified Static Serving (Single-Port Hosting)
+// -------------------------------------------------------------
+const FRONTEND_DIST_DIR = path.join(__dirname, '..', 'frontend', 'dist');
+
+if (fs.existsSync(FRONTEND_DIST_DIR)) {
+  // Serve static assets (js, css, icons)
+  app.use(express.static(FRONTEND_DIST_DIR));
+
+  // SPA Catch-all: Route all other GET requests to index.html for client-side routing
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) {
+      return next();
+    }
+    res.sendFile(path.join(FRONTEND_DIST_DIR, 'index.html'));
+  });
+
+  console.log(`[Server] Production frontend enabled from: ${FRONTEND_DIST_DIR}`);
+}
 
 // Global error handler
 app.use((err, req, res, next) => {
