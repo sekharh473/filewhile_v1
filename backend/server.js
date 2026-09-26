@@ -19,7 +19,9 @@ import {
   canFit,
   calculateRoomSize,
   startExpirySweeper,
-  MAX_ROOM_SIZE_BYTES
+  MAX_ROOM_SIZE_BYTES,
+  markRoomActive,
+  markRoomInactive
 } from './roomManager.js';
 import { saveFile, getFileStream, isCloudStorageEnabled, getStorageProviderName } from './storage.js';
 
@@ -101,8 +103,8 @@ app.get('/api/health', (req, res) => {
     uptime: process.uptime(),
     cloudStorage: getStorageProviderName(),
     maxRoomSizeBytes: MAX_ROOM_SIZE_BYTES,
-    roomExpiryMinutes: 20,
-    actualExpiryMinutes: 22
+    roomExpiryMinutes: 360,
+    actualExpiryMinutes: 360
   });
 });
 
@@ -363,6 +365,8 @@ io.on('connection', (socket) => {
     socket.join(normalizedId);
     currentRoom = normalizedId;
 
+    markRoomActive(normalizedId);
+
     const count = io.sockets.adapter.rooms.get(normalizedId)?.size || 1;
     io.to(normalizedId).emit('room:peers-count', { count });
     console.log(`[Socket] Client joined room: "${normalizedId}" (${count} connected)`);
@@ -385,6 +389,7 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     if (currentRoom) {
+      markRoomInactive(currentRoom);
       const count = io.sockets.adapter.rooms.get(currentRoom)?.size || 0;
       io.to(currentRoom).emit('room:peers-count', { count });
       console.log(`[Socket] Client left room: "${currentRoom}" (${count} remaining)`);
@@ -423,7 +428,7 @@ app.use((err, req, res, next) => {
 server.listen(PORT, () => {
   console.log(`===========================================`);
   console.log(`  Filewhile API server running on port ${PORT}`);
-  console.log(`  Max Room Limit: 65 MB | Expiry: 20 Min (22 Min Purge)`);
+  console.log(`  Max Room Limit: 65 MB | Expiry: 6 Hours (Inactive)`);
   console.log(`  Storage: ${getStorageProviderName()}`);
   console.log(`===========================================`);
 });

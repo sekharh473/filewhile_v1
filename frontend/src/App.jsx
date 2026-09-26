@@ -9,6 +9,8 @@ import { ImagesBox } from './components/ImagesBox';
 import { QrModal } from './components/QrModal';
 import { ToastProvider, useToast } from './components/Toast';
 import { addRecentRoom } from './utils/storage';
+import { getInitialTheme, applyTheme } from './utils/theme';
+import { AdSlot } from './components/AdSlot';
 
 function AppContent() {
   // Routing state based on path
@@ -23,8 +25,7 @@ function AppContent() {
     files: [],
     images: [],
     totalBytes: 0,
-    maxBytes: 65 * 1024 * 1024,
-    expiresAt: null
+    maxBytes: 65 * 1024 * 1024
   });
 
   const [peersCount, setPeersCount] = useState(1);
@@ -32,6 +33,20 @@ function AppContent() {
   const [isUploading, setIsUploading] = useState(false);
   const [maximizedPane, setMaximizedPane] = useState(null); // 'text' | 'files' | 'images' | null
   const [isQrOpen, setIsQrOpen] = useState(false);
+  const [theme, setTheme] = useState(getInitialTheme);
+
+  // Sync theme changes with DOM and storage
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
+  const handleToggleTheme = useCallback(() => {
+    setTheme(prev => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      applyTheme(next);
+      return next;
+    });
+  }, []);
 
   const socketRef = useRef(null);
   const textDebounceTimer = useRef(null);
@@ -61,7 +76,16 @@ function AppContent() {
     setMaximizedPane(null);
   }, []);
 
-  // Initialize and manage Socket.io connection
+  const currentRoomIdRef = useRef(currentRoomId);
+
+  useEffect(() => {
+    currentRoomIdRef.current = currentRoomId;
+    if (socketRef.current?.connected && currentRoomId) {
+      socketRef.current.emit('room:join', { roomId: currentRoomId });
+    }
+  }, [currentRoomId]);
+
+  // Initialize and manage Socket.io connection once
   useEffect(() => {
     // In dev, Vite proxies /socket.io to backend; in prod, same origin or configured origin
     const socket = io('/', {
@@ -71,8 +95,8 @@ function AppContent() {
 
     socket.on('connect', () => {
       console.log('[Socket] Connected to server, id:', socket.id);
-      if (currentRoomId) {
-        socket.emit('room:join', { roomId: currentRoomId });
+      if (currentRoomIdRef.current) {
+        socket.emit('room:join', { roomId: currentRoomIdRef.current });
       }
     });
 
@@ -123,7 +147,7 @@ function AppContent() {
     return () => {
       socket.disconnect();
     };
-  }, [currentRoomId, navigateToHome, addToast]);
+  }, [navigateToHome, addToast]);
 
   // Load initial room data from REST endpoint whenever currentRoomId changes
   useEffect(() => {
@@ -142,8 +166,7 @@ function AppContent() {
             files: data.files || [],
             images: data.images || [],
             totalBytes: data.totalBytes || 0,
-            maxBytes: data.maxBytes || 65 * 1024 * 1024,
-            expiresAt: data.expiresAt || null
+            maxBytes: data.maxBytes || 65 * 1024 * 1024
           });
           // Join room via socket if already connected
           if (socketRef.current?.connected) {
@@ -163,6 +186,38 @@ function AppContent() {
       isMounted = false;
     };
   }, [currentRoomId, addToast]);
+
+  // Re-sync latest room state when tab regains focus or visibility
+  useEffect(() => {
+    if (!currentRoomId) return;
+
+    const handleFocusSync = async () => {
+      if (document.visibilityState === 'visible' && currentRoomId) {
+        try {
+          const res = await fetch(`/api/room/${currentRoomId}`);
+          if (res.ok) {
+            const data = await res.json();
+            setRoomData(prev => ({
+              ...prev,
+              text: data.text ?? prev.text,
+              files: data.files ?? prev.files,
+              images: data.images ?? prev.images,
+              totalBytes: data.totalBytes ?? prev.totalBytes
+            }));
+          }
+        } catch {
+          // Ignore background sync errors
+        }
+      }
+    };
+
+    window.addEventListener('focus', handleFocusSync);
+    document.addEventListener('visibilitychange', handleFocusSync);
+    return () => {
+      window.removeEventListener('focus', handleFocusSync);
+      document.removeEventListener('visibilitychange', handleFocusSync);
+    };
+  }, [currentRoomId]);
 
   // Handle local text changes with real-time Socket broadcast
   const handleTextChange = useCallback((newText) => {
@@ -186,7 +241,7 @@ function AppContent() {
       }
       setSyncStatus('synced');
       isLocalTyping.current = false;
-    }, 180);
+    }, 120);
   }, [currentRoomId]);
 
   // Handle uploading files/images
@@ -263,15 +318,19 @@ function AppContent() {
 
   return (
     <div className="app-shell">
+      {/* Ambient Cone of Light shining from the header lamp */}
+      <div className={`workspace-lamp-beam ${theme === 'light' ? 'is-lit' : 'is-off'}`} aria-hidden="true" />
+
       {/* Top Navigation */}
       <Navbar
         roomId={currentRoomId}
         peersCount={peersCount}
         totalBytes={roomData.totalBytes}
         maxBytes={roomData.maxBytes}
-        expiresAt={roomData.expiresAt}
         onOpenQr={() => setIsQrOpen(true)}
         onNavigateHome={navigateToHome}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
       />
 
       {/* Main Content: Home vs Room Drop Space */}
@@ -279,42 +338,51 @@ function AppContent() {
         {!currentRoomId ? (
           <Home onJoinRoom={navigateToRoom} />
         ) : (
-          <SplitPane
-            maximizedPane={maximizedPane}
-            onToggleMaximize={handleToggleMaximize}
-            textPane={
-              <TextBox
-                roomId={currentRoomId}
-                text={roomData.text}
-                onChangeText={handleTextChange}
-                syncStatus={syncStatus}
-                isMaximized={maximizedPane === 'text'}
+          <div className="room-workspace-wrapper">
+            <div className="room-workspace-main">
+              <SplitPane
+                maximizedPane={maximizedPane}
                 onToggleMaximize={handleToggleMaximize}
+                textPane={
+                  <TextBox
+                    roomId={currentRoomId}
+                    text={roomData.text}
+                    onChangeText={handleTextChange}
+                    syncStatus={syncStatus}
+                    isMaximized={maximizedPane === 'text'}
+                    onToggleMaximize={handleToggleMaximize}
+                  />
+                }
+                filesPane={
+                  <FilesBox
+                    roomId={currentRoomId}
+                    files={roomData.files}
+                    onUploadFiles={handleUploadFiles}
+                    onDeleteFile={handleDeleteFile}
+                    isMaximized={maximizedPane === 'files'}
+                    onToggleMaximize={handleToggleMaximize}
+                    isUploading={isUploading}
+                  />
+                }
+                imagesPane={
+                  <ImagesBox
+                    roomId={currentRoomId}
+                    images={roomData.images}
+                    onUploadFiles={handleUploadFiles}
+                    onDeleteFile={handleDeleteFile}
+                    isMaximized={maximizedPane === 'images'}
+                    onToggleMaximize={handleToggleMaximize}
+                    isUploading={isUploading}
+                  />
+                }
               />
-            }
-            filesPane={
-              <FilesBox
-                roomId={currentRoomId}
-                files={roomData.files}
-                onUploadFiles={handleUploadFiles}
-                onDeleteFile={handleDeleteFile}
-                isMaximized={maximizedPane === 'files'}
-                onToggleMaximize={handleToggleMaximize}
-                isUploading={isUploading}
-              />
-            }
-            imagesPane={
-              <ImagesBox
-                roomId={currentRoomId}
-                images={roomData.images}
-                onUploadFiles={handleUploadFiles}
-                onDeleteFile={handleDeleteFile}
-                isMaximized={maximizedPane === 'images'}
-                onToggleMaximize={handleToggleMaximize}
-                isUploading={isUploading}
-              />
-            }
-          />
+            </div>
+
+            {/* Google Ads Placement: Thin Bottom Banner in Room Workspace */}
+            <div className="room-bottom-ad-bar">
+              <AdSlot format="horizontal" className="room-ad-slot" label="Advertisement" />
+            </div>
+          </div>
         )}
       </main>
 

@@ -12,6 +12,7 @@
   "dependencies": {
     "lucide-react": "^1.48.0",
     "marked": "^18.0.14",
+    "prettier": "^3.9.9",
     "qrcode": "^1.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

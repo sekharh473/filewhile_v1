@@ -1,8 +1,7 @@
 import { deleteRoomFiles, deleteFile } from './storage.js';
 
 export const MAX_ROOM_SIZE_BYTES = 65 * 1024 * 1024; // 65 Megabytes
-export const ROOM_EXPIRY_MS = 22 * 60 * 1000; // 22 Minutes (actual backend purge)
-export const USER_VISIBLE_EXPIRY_MS = 20 * 60 * 1000; // 20 Minutes (displayed to user)
+export const ROOM_EXPIRY_MS = 6 * 60 * 60 * 1000; // 6 Hours
 
 // In-memory active rooms registry
 const rooms = new Map();
@@ -19,7 +18,7 @@ export function getOrCreateRoom(roomId) {
       roomId: normalizedId,
       createdAt: now,
       expiresAt: now + ROOM_EXPIRY_MS,
-      visibleExpiresAt: now + USER_VISIBLE_EXPIRY_MS,
+      activeUsers: 0,
       text: '',
       files: [],
       images: []
@@ -27,13 +26,29 @@ export function getOrCreateRoom(roomId) {
   }
 
   const room = rooms.get(normalizedId);
-  // Check if expired
-  if (Date.now() > room.expiresAt) {
+  // Check if expired (only if no active users and time has passed)
+  if (room.activeUsers === 0 && room.expiresAt !== null && Date.now() > room.expiresAt) {
     purgeRoom(normalizedId);
     return getOrCreateRoom(normalizedId);
   }
 
   return room;
+}
+
+export function markRoomActive(roomId) {
+  const room = getOrCreateRoom(roomId);
+  room.activeUsers += 1;
+  room.expiresAt = null; // Never expires while active
+}
+
+export function markRoomInactive(roomId) {
+  const room = rooms.get(roomId);
+  if (room) {
+    room.activeUsers = Math.max(0, room.activeUsers - 1);
+    if (room.activeUsers === 0) {
+      room.expiresAt = Date.now() + ROOM_EXPIRY_MS;
+    }
+  }
 }
 
 /**
@@ -138,7 +153,7 @@ export async function purgeRoom(roomId, ioInstance = null) {
   rooms.delete(roomId);
 
   if (ioInstance) {
-    ioInstance.to(roomId).emit('room:expired', { roomId, message: 'This temporary room has expired after 20 minutes.' });
+    ioInstance.to(roomId).emit('room:expired', { roomId, message: 'This temporary room has expired after 6 hours of inactivity.' });
   }
 }
 
@@ -150,7 +165,7 @@ export function startExpirySweeper(ioInstance) {
   setInterval(() => {
     const now = Date.now();
     for (const [roomId, room] of rooms.entries()) {
-      if (now >= room.expiresAt) {
+      if (room.activeUsers === 0 && room.expiresAt !== null && now >= room.expiresAt) {
         purgeRoom(roomId, ioInstance);
       }
     }
@@ -163,17 +178,9 @@ export function startExpirySweeper(ioInstance) {
 export function getRoomData(roomId) {
   const room = getOrCreateRoom(roomId);
   const currentBytes = calculateRoomSize(room);
-  const now = Date.now();
-  // Display remaining time based on the 20-minute user-facing window
-  const visibleRemainingMs = Math.max(0, (room.visibleExpiresAt || (room.createdAt + USER_VISIBLE_EXPIRY_MS)) - now);
-
   return {
     roomId: room.roomId,
     createdAt: room.createdAt,
-    expiresAt: room.visibleExpiresAt || (room.createdAt + USER_VISIBLE_EXPIRY_MS),
-    backendExpiresAt: room.expiresAt,
-    remainingMs: visibleRemainingMs,
-    remainingSeconds: Math.floor(visibleRemainingMs / 1000),
     text: room.text,
     files: room.files,
     images: room.images,

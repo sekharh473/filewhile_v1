@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Sparkles,
+  FileDown,
   ArrowRight,
   Shuffle,
   Clock,
@@ -18,6 +18,7 @@ import {
 import { generateRandomRoomSlug } from '../utils/words';
 import { getRecentRooms, removeRecentRoom } from '../utils/storage';
 import { formatRelativeTime } from '../utils/formatters';
+import { AdSlot } from './AdSlot';
 
 export function Home({ onJoinRoom }) {
   const [customRoom, setCustomRoom] = useState('');
@@ -59,7 +60,7 @@ export function Home({ onJoinRoom }) {
       {/* Hero Section */}
       <header className="home-hero">
         <div className="hero-badge">
-          <Sparkles size={14} className="badge-sparkle" />
+          <FileDown size={14} className="badge-sparkle" />
           <span>Corporate & Team Temporary Workspace</span>
         </div>
 
@@ -70,7 +71,7 @@ export function Home({ onJoinRoom }) {
 
         <p className="hero-description">
           Instantly transfer files, paste screenshots, and collaborate on shared notes between
-          your desktop, mobile, and teammates. Auto-expires cleanly after 20 minutes.
+          your desktop, mobile, and teammates. Auto-expires cleanly after 6 hours of inactivity.
         </p>
 
         {/* 2-Step Quick Start Card */}
@@ -164,6 +165,9 @@ export function Home({ onJoinRoom }) {
         )}
       </header>
 
+      {/* Google Ads Placement: Between Quickstart & Features */}
+      <AdSlot className="ad-home-mid" label="Advertisement" />
+
       {/* Feature Highlights Grid */}
       <section className="features-grid">
         <div className="feature-card glass-panel">
@@ -233,6 +237,9 @@ export function Home({ onJoinRoom }) {
           </div>
         </div>
       </section>
+
+      {/* Google Ads Placement: Pre-Footer Banner */}
+      <AdSlot className="ad-home-bottom" label="Advertisement" />
 
       <footer className="home-footer">
         <p>Filewhile - Fast, Temporary Sharing & Drop Space. Auto-purged after 20 minutes.</p>
