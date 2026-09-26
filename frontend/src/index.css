@@ -2331,3 +2331,26 @@ button {
     width: 100%;
   }
 }
+
+@media (max-width: 600px) {
+  .brand-title,
+  .room-divider,
+  .pane-heading,
+  .pane-subheading,
+  .stat-counter-pill,
+  .storage-pill {
+    display: none !important;
+  }
+  
+  .peers-pill .stat-val {
+    display: none !important;
+  }
+  
+  .peers-pill {
+    padding: 0.2rem 0.5rem;
+  }
+  
+  .navbar-left, .navbar-center, .navbar-right {
+    gap: 0.5rem;
+  }
+}
