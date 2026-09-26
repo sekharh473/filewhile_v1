@@ -86,7 +86,7 @@ export function Home({ onJoinRoom }) {
 
               <form onSubmit={handleCustomSubmit} className="room-input-form">
                 <div className="room-input-wrapper">
-                  <span className="input-prefix">//</span>
+                  <span className="input-prefix">/</span>
                   <input
                     type="text"
                     className="room-name-input"
